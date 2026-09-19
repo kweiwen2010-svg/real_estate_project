@@ -35,7 +35,6 @@ def fetch_and_clean_data():
         print(f"下載失敗，狀態碼: {resp.status_code}")
         return
 
-    # 解壓縮記憶體中的 ZIP
     with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
         for city_name, csv_filename in CITY_FILES.items():
             if csv_filename not in z.namelist():
@@ -63,7 +62,6 @@ def fetch_and_clean_data():
                         low_memory=False,
                     )
 
-            # 備註過濾
             if "備註" in df.columns:
                 df = df[
                     ~df["備註"]
@@ -79,11 +77,11 @@ def fetch_and_clean_data():
 
                     trans_sign = str(row.get("交易標的", ""))
                     
+                    # 支援新版「土地位置建物門牌」與舊版「土地區段位置或街路名稱」
+                    address = str(row.get("土地位置建物門牌", row.get("土地區段位置或街路名稱", ""))).strip()
+                    
                     total_price = float(row.get("總價元", 0))
-# 優先抓取「土地位置建物門牌」，若無則抓「土地區段位置或街路名稱」
-address = str(
-    row.get("土地位置建物門牌", row.get("土地區段位置或街路名稱", ""))
-).strip()
+
                     building_ping = (
                         float(row.get("建物移轉總面積平方公尺", 0)) / 3.30578
                     )
@@ -112,7 +110,6 @@ address = str(
                     building_type = str(row.get("建物型態", ""))
                     room_hall = f"{row.get('建物房數', 0)}房{row.get('建物廳數', 0)}廳{row.get('建物衛數', 0)}衛"
 
-                    # 組合更多資訊產生唯一 ID，降低 Hash 衝突
                     row_id = abs(
                         hash(
                             f"{city_dist}_{address}_{trans_date}_{total_price}_{building_ping}_{room_hall}"
@@ -144,7 +141,7 @@ address = str(
         print("警告：本次抓取的有效資料為 0 筆！")
         return
 
-    # 【關鍵修復】透過字典強制去除 batch 內的重複 id
+    # 批次內強制去重
     unique_data_dict = {item["id"]: item for item in all_clean_data}
     all_clean_data = list(unique_data_dict.values())
 
