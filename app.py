@@ -10,9 +10,10 @@ st.title("🏠 實價登錄自動同步儀表板")
 st.write("資料來源：內政部實價登錄 ➡️ Supabase")
 
 
+# 設定快取
 @st.cache_data(ttl=600)
 def load_data():
-    # 抓取最多 5000 筆資料
+    # 關鍵：加上 .limit(5000) 突破預設的 1000 筆限制
     response = (
         supabase.table("real_estate_transactions")
         .select("*")
@@ -25,16 +26,12 @@ def load_data():
 df = load_data()
 
 if not df.empty:
-    st.success(f"目前資料庫共有 {len(df)} 筆資料")
+    st.success(f"目前成功載入 {len(df)} 筆實價登錄資料！")
 
-    # 🔍 建立搜尋關鍵字輸入框
-    search_term = st.text_input(
-        "🔎 請輸入關鍵字查詢（例如：台中文心路、桃園市、車位）：", ""
-    )
+    # 🔍 關鍵字搜尋功能
+    search_term = st.text_input("🔎 請輸入關鍵字查詢（例如：台中文心路）：", "")
 
-    # 執行資料過濾
     if search_term:
-        # 將「縣市區域」與「路段地址」合併搜尋，只要包含關鍵字就列出
         filtered_df = df[
             df["city_district"]
             .astype(str)
@@ -46,8 +43,6 @@ if not df.empty:
         st.write(f"搜尋 **「{search_term}」**，共找到 {len(filtered_df)} 筆結果：")
         st.dataframe(filtered_df, use_container_width=True)
     else:
-        # 未輸入關鍵字時顯示全部資料
         st.dataframe(df, use_container_width=True)
-
 else:
-    st.warning("目前資料庫中沒有資料，請確認資料同步狀態。")
+    st.warning("目前資料庫中沒有資料。")
