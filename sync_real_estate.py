@@ -13,10 +13,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# 內政部當期免費開放資料 ZIP 檔網址
-ZIP_URL = "https://plvr.land.moi.gov.tw/DownloadSeason?season=113S1&type=zip&fileName=lvr_landcsv.zip"
-
-# 代碼對應檔名
 CITY_FILES = {
     "桃園市": "h_lvr_land_a.csv",
     "台中市": "b_lvr_land_a.csv",
@@ -32,13 +28,11 @@ def fetch_and_clean_data():
     }
 
     print("正在下載內政部實價登錄資料包...")
-    resp = requests.get(
-        "https://plvr.land.moi.gov.tw/Download?type=zip&fileName=lvr_landcsv.zip",
-        headers=headers,
-    )
+    url = "https://plvr.land.moi.gov.tw/Download?type=zip&fileName=lvr_landcsv.zip"
+    resp = requests.get(url, headers=headers)
 
     if resp.status_code != 200:
-        print(f"下載 failure，狀態碼: {resp.status_code}")
+        print(f"下載失敗，狀態碼: {resp.status_code}")
         return
 
     # 解壓縮記憶體中的 ZIP
@@ -50,8 +44,6 @@ def fetch_and_clean_data():
 
             print(f"正在處理 {city_name}...")
             with z.open(csv_filename) as f:
-                # header=0 抓第一列英文，skiprows=[1] 跳過第二列中文說明
-                # 或者 skiprows=1 直接把第二列當 header
                 try:
                     df = pd.read_csv(
                         f,
@@ -117,12 +109,12 @@ def fetch_and_clean_data():
                     building_type = str(row.get("建物型態", ""))
                     room_hall = f"{row.get('建物房數', 0)}房{row.get('建物廳數', 0)}廳{row.get('建物衛數', 0)}衛"
 
-                    # 加上 building_ping 與 room_hall_health 讓 ID 更加唯一
-row_id = abs(
-    hash(
-        f"{city_dist}_{address}_{trans_date}_{total_price}_{building_ping}_{room_hall}"
-    )
-)
+                    # 組合更多資訊產生唯一 ID，降低 Hash 衝突
+                    row_id = abs(
+                        hash(
+                            f"{city_dist}_{address}_{trans_date}_{total_price}_{building_ping}_{room_hall}"
+                        )
+                    )
 
                     processed_rows.append(
                         {
@@ -145,20 +137,16 @@ row_id = abs(
 
             all_clean_data.extend(processed_rows)
 
-    print(
-        f"總共清洗出 {len(all_clean_data)} 筆有效資料，準備上傳至 Supabase..."
-    )
-
     if len(all_clean_data) == 0:
         print("警告：本次抓取的有效資料為 0 筆！")
         return
 
-    # 【新增這段】透過字典去除同一個批次中重複的 id，避免 PostgreSQL UPSERT 衝突
+    # 【關鍵修復】透過字典強制去除 batch 內的重複 id
     unique_data_dict = {item["id"]: item for item in all_clean_data}
     all_clean_data = list(unique_data_dict.values())
 
     print(
-        f"去重後剩餘 {len(all_clean_data)} 筆唯一資料，準備上傳至 Supabase..."
+        f"去重後剩餘 {len(all_clean_data)} 筆有效資料，準備上傳至 Supabase..."
     )
 
     batch_size = 500
@@ -166,6 +154,7 @@ row_id = abs(
         batch = all_clean_data[i : i + batch_size]
         supabase.table("real_estate_transactions").upsert(batch).execute()
         print(f"已上傳批次 {i} 至 {i+len(batch)}")
+
     print("資料同步完成！")
 
 
