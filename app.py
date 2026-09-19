@@ -13,7 +13,7 @@ st.write("資料來源：內政部實價登錄 ➡️ Supabase")
 # 從 Supabase 抓取資料 (請把 real_estate_data 換成你的實際資料表名稱)
 @st.cache_data
 def load_data():
-    response = supabase.table("real_estate_data").select("*").execute()
+    response = supabase.table("real_estate_transactions").select("*").execute()
     return pd.DataFrame(response.data)
 
 df = load_data()
