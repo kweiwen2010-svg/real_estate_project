@@ -1,6 +1,4 @@
 import os
-import io
-import zipfile
 import requests
 import pandas as pd
 from supabase import create_client, Client
@@ -13,44 +11,38 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# 內政部 PLVR 縣市代碼 (桃園: H, 台中: B, 嘉義市: I, 嘉義縣: Q)
+# 內政部各縣市 OpenData 英文代碼 (桃園: h, 台中: b, 嘉義市: i, 嘉義縣: q)
 TARGET_CITIES = {
-    '桃園市': 'H',
-    '台中市': 'B',
-    '嘉義市': 'I',
-    '嘉義縣': 'Q'
+    '桃園市': 'h',
+    '台中市': 'b',
+    '嘉義市': 'i',
+    '嘉義縣': 'q'
 }
 
 def fetch_and_clean_data():
     all_clean_data = []
 
     for city_name, code in TARGET_CITIES.items():
-        print(f"正在下載並處理 {city_name} (代碼: {code})...")
-        # 使用內政部地政司官方穩定的 ZIP 下載點
-        zip_url = f"https://plvr.land.moi.gov.tw/Download?type=zip&fileName=lvr_land/{code}_lvr_land_A.zip"
+        print(f"正在從內政部平臺抓取 {city_name} (代碼: {code})...")
+        # 改用內政部 OpenData 正式授權的穩定 CSV 下載點
+        csv_url = f"https://opendata.land.moi.gov.tw/datainfo/opendataDownload?datasetPath=/{code.upper()}_LAND_BUILDING_C.csv"
         
         try:
-            response = requests.get(zip_url)
-            if response.status_code != 200:
-                print(f"無法下載 {city_name} 檔案，狀態碼: {response.status_code}")
-                continue
-                
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                csv_filename = [f for f in z.namelist() if f.endswith('.csv')][0]
-                with z.open(csv_filename) as f:
-                    try:
-                        df = pd.read_csv(f, encoding='utf-8', low_memory=False)
-                    except UnicodeDecodeError:
-                        f.seek(0)
-                        df = pd.read_csv(f, encoding='big5', low_memory=False)
+            df = pd.read_csv(csv_url, encoding='utf-8', low_memory=False)
         except Exception as e:
             print(f"讀取 {city_name} 失敗: {e}")
-            continue
+            try:
+                # 備用編碼嘗試
+                df = pd.read_csv(csv_url, encoding='big5', low_memory=False)
+            except Exception as e2:
+                print(f"備用編碼讀取也失敗: {e2}")
+                continue
 
-        # 處理欄位列
-        if len(df) > 0 and '鄉鎮市區' not in df.columns:
-            df.columns = df.iloc[0]
-            df = df.iloc[1:].reset_index(drop=True)
+        # 處理可能的欄位列位移
+        if len(df) > 0 and '鄉鎮市區' not in df.columns and '本棟' not in str(df.columns):
+            if len(df.columns) > 1:
+                df.columns = df.iloc[0]
+                df = df.iloc[1:].reset_index(drop=True)
 
         # 過濾親友特殊交易等雜訊
         if '備註' in df.columns:
@@ -109,6 +101,10 @@ def fetch_and_clean_data():
         all_clean_data.extend(processed_rows)
 
     print(f"總共清洗出 {len(all_clean_data)} 筆有效資料，準備上傳至 Supabase...")
+
+    if len(all_clean_data) == 0:
+        print("警告：本次抓取的有效資料為 0 筆！")
+        return
 
     batch_size = 500
     for i in range(0, len(all_clean_data), batch_size):
