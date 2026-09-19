@@ -1,39 +1,56 @@
 import os
+import io
+import zipfile
 import requests
 import pandas as pd
 from supabase import create_client, Client
 
-# --- 1. 從系統環境變數讀取金鑰（安全，不上傳密碼） ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# 檢查是否成功讀取
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("找不到 Supabase 金鑰！請確認是否已設定環境變數。")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- 2. 內政部實價登錄各縣市代碼 (桃園: h, 台中: b, 嘉義市: i, 嘉義縣: q) ---
+# 內政部 PLVR 縣市代碼 (桃園: H, 台中: B, 嘉義市: I, 嘉義縣: Q)
 TARGET_CITIES = {
-    '桃園市': 'h',
-    '台中市': 'b',
-    '嘉義市': 'i',
-    '嘉義縣': 'q'
+    '桃園市': 'H',
+    '台中市': 'B',
+    '嘉義市': 'I',
+    '嘉義縣': 'Q'
 }
 
 def fetch_and_clean_data():
     all_clean_data = []
 
     for city_name, code in TARGET_CITIES.items():
-        print(f"正在處理 {city_name} (代碼: {code})...")
-        csv_url = f"https://opendata.land.moi.gov.tw/datainfo/opendataDownload?datasetPath=/{code.upper()}_LAND_BUILDING_C.csv"
+        print(f"正在下載並處理 {city_name} (代碼: {code})...")
+        # 使用內政部地政司官方穩定的 ZIP 下載點
+        zip_url = f"https://plvr.land.moi.gov.tw/Download?type=zip&fileName=lvr_land/{code}_lvr_land_A.zip"
         
         try:
-            # 內政部 CSV 通常為 cp950 (Big5) 編碼
-            df = pd.read_csv(csv_url, encoding='cp950')
+            response = requests.get(zip_url)
+            if response.status_code != 200:
+                print(f"無法下載 {city_name} 檔案，狀態碼: {response.status_code}")
+                continue
+                
+            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                csv_filename = [f for f in z.namelist() if f.endswith('.csv')][0]
+                with z.open(csv_filename) as f:
+                    try:
+                        df = pd.read_csv(f, encoding='utf-8', low_memory=False)
+                    except UnicodeDecodeError:
+                        f.seek(0)
+                        df = pd.read_csv(f, encoding='big5', low_memory=False)
         except Exception as e:
-            print(f"無法讀取 {city_name} 網路檔案: {e}")
+            print(f"讀取 {city_name} 失敗: {e}")
             continue
+
+        # 處理欄位列
+        if len(df) > 0 and '鄉鎮市區' not in df.columns:
+            df.columns = df.iloc[0]
+            df = df.iloc[1:].reset_index(drop=True)
 
         # 過濾親友特殊交易等雜訊
         if '備註' in df.columns:
@@ -70,7 +87,6 @@ def fetch_and_clean_data():
                 building_type = str(row.get('建物型態', ''))
                 room_hall = f"{row.get('建物房數', 0)}房{row.get('建物廳數', 0)}廳{row.get('建物衛數', 0)}衛"
                 
-                # 組合唯一 ID
                 row_id = abs(hash(f"{city_dist}_{address}_{trans_date}_{total_price}"))
 
                 processed_rows.append({
@@ -94,7 +110,6 @@ def fetch_and_clean_data():
 
     print(f"總共清洗出 {len(all_clean_data)} 筆有效資料，準備上傳至 Supabase...")
 
-    # 批次寫入 Supabase (Upsert)
     batch_size = 500
     for i in range(0, len(all_clean_data), batch_size):
         batch = all_clean_data[i:i+batch_size]
