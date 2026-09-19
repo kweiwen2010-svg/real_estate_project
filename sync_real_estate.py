@@ -25,14 +25,14 @@ TARGET_CITIES = {
 def fetch_and_clean_data():
     all_clean_data = []
     
-    # 模擬瀏覽器標頭，避免被政府伺服器擋下
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
     for city_name, code in TARGET_CITIES.items():
         print(f"正在下載並處理 {city_name} (代碼: {code})...")
-        zip_url = f"https://plvr.land.moi.gov.tw/Download?type=zip&fileName=lvr_land/{code}_lvr_land_A.zip"
+        # 修正：移除多餘的 _A，改為正確的檔名格式
+        zip_url = f"https://plvr.land.moi.gov.tw/Download?type=zip&fileName=lvr_land/{code}_lvr_land.zip"
         
         try:
             response = requests.get(zip_url, headers=headers)
@@ -40,7 +40,6 @@ def fetch_and_clean_data():
                 print(f"下載失敗，HTTP 狀態碼: {response.status_code} (代碼: {code})")
                 continue
                 
-            # 解壓縮 ZIP 檔並讀取裡面的 CSV
             with zipfile.ZipFile(io.BytesIO(response.content)) as z:
                 csv_filename = [f for f in z.namelist() if f.endswith('.csv')][0]
                 with z.open(csv_filename) as f:
@@ -53,14 +52,10 @@ def fetch_and_clean_data():
             print(f"讀取 {city_name} 失敗: {e}")
             continue
 
-        # 處理欄位列對齊（若首行為英文代碼，自動將第二行設為欄位名稱）
         if len(df) > 0 and '鄉鎮市區' not in df.columns:
-            if 'the_economist' in str(df.columns[0]): # 簡單防護
-                pass
             df.columns = df.iloc[0]
             df = df.iloc[1:].reset_index(drop=True)
 
-        # 過濾親友特殊交易等雜訊
         if '備註' in df.columns:
             df = df[~df['備註'].astype(str).str.contains('親友|特殊|債權|偽造', na=False)]
 
@@ -95,7 +90,6 @@ def fetch_and_clean_data():
                 building_type = str(row.get('建物型態', ''))
                 room_hall = f"{row.get('建物房數', 0)}房{row.get('建物廳數', 0)}廳{row.get('建物衛數', 0)}衛"
                 
-                # 組合唯一 ID
                 row_id = abs(hash(f"{city_dist}_{address}_{trans_date}_{total_price}"))
 
                 processed_rows.append({
@@ -123,7 +117,6 @@ def fetch_and_clean_data():
         print("警告：本次抓取的有效資料為 0 筆！")
         return
 
-    # 批次寫入 Supabase (Upsert)
     batch_size = 500
     for i in range(0, len(all_clean_data), batch_size):
         batch = all_clean_data[i:i+batch_size]
