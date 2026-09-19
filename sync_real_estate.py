@@ -1,57 +1,51 @@
 import os
-import io
-import zipfile
 import requests
 import pandas as pd
 from supabase import create_client, Client
 
-# --- 1. 從系統環境變數讀取金鑰 ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("找不到 Supabase 金鑰！請確認是否已設定環境變數。")
+    raise ValueError("找不到 Supabase 金鑰！")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- 2. 內政部實價登錄各縣市代碼 (桃園: H, 台中: B, 嘉義市: I, 嘉義縣: Q) ---
-TARGET_CITIES = {
-    '桃園市': 'H',
-    '台中市': 'B',
-    '嘉義市': 'I',
-    '嘉義縣': 'Q'
+# 桃園(h)、台中(b)、嘉義市(i)、嘉義縣(q) 的政府開放平臺固定 CSV 網址
+# 採用直接讀取 CSV 的方式，避免 ZIP 結構變動導致 404
+TARGET_URLS = {
+    '桃園市': 'https://plvr.land.moi.gov.tw/Download?type=csv&fileName=lvr_land/H_lvr_land_A.csv',
+    '台中市': 'https://plvr.land.moi.gov.tw/Download?type=csv&fileName=lvr_land/B_lvr_land_A.csv',
+    '嘉義市': 'https://plvr.land.moi.gov.tw/Download?type=csv&fileName=lvr_land/I_lvr_land_A.csv',
+    '嘉義縣': 'https://plvr.land.moi.gov.tw/Download?type=csv&fileName=lvr_land/Q_lvr_land_A.csv',
 }
 
 def fetch_and_clean_data():
     all_clean_data = []
-    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    for city_name, code in TARGET_CITIES.items():
-        print(f"正在下載並處理 {city_name} (代碼: {code})...")
-        # 修正：移除多餘的 _A，改為正確的檔名格式
-        zip_url = f"https://plvr.land.moi.gov.tw/Download?type=zip&fileName=lvr_land/{code}_lvr_land.zip"
-        
+    for city_name, url in TARGET_URLS.items():
+        print(f"正在下載 {city_name} 資料...")
         try:
-            response = requests.get(zip_url, headers=headers)
+            response = requests.get(url, headers=headers)
             if response.status_code != 200:
-                print(f"下載失敗，HTTP 狀態碼: {response.status_code} (代碼: {code})")
+                print(f"{city_name} 下載失敗，狀態碼: {response.status_code}")
                 continue
                 
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                csv_filename = [f for f in z.namelist() if f.endswith('.csv')][0]
-                with z.open(csv_filename) as f:
-                    try:
-                        df = pd.read_csv(f, encoding='utf-8', low_memory=False)
-                    except UnicodeDecodeError:
-                        f.seek(0)
-                        df = pd.read_csv(f, encoding='big5', low_memory=False)
+            # 嘗試用 UTF-8 或 Big5 讀取 CSV
+            from io import StringIO
+            try:
+                df = pd.read_csv(StringIO(response.content.decode('utf-8')), low_memory=False)
+            except UnicodeDecodeError:
+                df = pd.read_csv(StringIO(response.content.decode('big5', errors='ignore')), low_memory=False)
+                
         except Exception as e:
-            print(f"讀取 {city_name} 失敗: {e}")
+            print(f"處理 {city_name} 發生錯誤: {e}")
             continue
 
+        # 處理首行為英文代碼的情況
         if len(df) > 0 and '鄉鎮市區' not in df.columns:
             df.columns = df.iloc[0]
             df = df.iloc[1:].reset_index(drop=True)
@@ -83,7 +77,6 @@ def fetch_and_clean_data():
 
                 net_building_ping = building_ping - parking_ping
                 net_total_price = total_price - parking_price
-                
                 unit_price = (net_total_price / net_building_ping) if net_building_ping > 0 else 0
 
                 trans_date = str(row.get('交易年月日', ''))
