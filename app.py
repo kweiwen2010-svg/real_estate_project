@@ -62,7 +62,7 @@ if not df.empty:
         0
     )
 
-    # 計算每坪單價（萬元/坪）以方便展示圖表
+    # 計算每坪單價（萬元/坪）
     df["unit_price_wan"] = df["unit_price"] / 10000
 
     min_price, max_price = float(df["total_price"].min()), float(
@@ -111,10 +111,10 @@ if not df.empty:
 
     st.success(f"目前成功載入 {len(df)} 筆完整資料！")
 
-    # ------------------ 📈 新增：統計指標卡片 ------------------
+    # ------------------ 📊 行情統計卡片 ------------------
     st.subheader("📊 篩選行情統計")
 
-    # 排除單價為 0 的異常值進行統計
+    # 排除單價為 0 或過於異常的值
     valid_unit_price = filtered_df[filtered_df["unit_price_wan"] > 0][
         "unit_price_wan"
     ]
@@ -145,22 +145,26 @@ if not df.empty:
 
     st.markdown("---")
 
-    # ------------------ 📈 新增：價格分佈圖表 ------------------
+    # ------------------ 📈 圖表展示 ------------------
     col_chart1, col_chart2 = st.columns(2)
 
     with col_chart1:
         st.subheader("📈 單價區間分佈（萬/坪）")
         if not valid_unit_price.empty:
-            # 將單價切分為區間，統計數量
-            counts, bin_edges = pd.cut(
-                valid_unit_price, bins=15, retbins=True
+            # 安全計算單價區間（分 10 區段）
+            bins = pd.cut(valid_unit_price, bins=10)
+            chart_series = bins.value_counts().sort_index()
+
+            # 將 Interval 物件轉成字串，避免 Pandas 索引取值報錯
+            chart_data = pd.DataFrame(
+                {
+                    "單價區間": [
+                        f"{int(b.left)}~{int(b.right)}萬"
+                        for b in chart_series.index
+                    ],
+                    "筆數": chart_series.values,
+                }
             )
-            chart_data = (
-                counts.value_counts()
-                .sort_index()
-                .reset_index(name="筆數")
-            )
-            chart_data["單價區間"] = chart_data["index"].astype(str)
             st.bar_chart(
                 chart_data.set_index("單價區間")["筆數"],
                 color="#FF4B4B",
@@ -171,7 +175,6 @@ if not df.empty:
     with col_chart2:
         st.subheader("📌 面積 vs 總價分佈圖")
         if not filtered_df.empty:
-            # 轉換為萬元以方便檢視
             chart_df = filtered_df[
                 (filtered_df["building_ping"] > 0)
                 & (filtered_df["total_price"] > 0)
