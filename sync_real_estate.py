@@ -117,9 +117,12 @@ def fetch_and_clean_data():
                     building_type = str(row.get("建物型態", ""))
                     room_hall = f"{row.get('建物房數', 0)}房{row.get('建物廳數', 0)}廳{row.get('建物衛數', 0)}衛"
 
-                    row_id = abs(
-                        hash(f"{city_dist}_{address}_{trans_date}_{total_price}")
-                    )
+                    # 加上 building_ping 與 room_hall_health 讓 ID 更加唯一
+row_id = abs(
+    hash(
+        f"{city_dist}_{address}_{trans_date}_{total_price}_{building_ping}_{room_hall}"
+    )
+)
 
                     processed_rows.append(
                         {
@@ -149,6 +152,14 @@ def fetch_and_clean_data():
     if len(all_clean_data) == 0:
         print("警告：本次抓取的有效資料為 0 筆！")
         return
+
+    # 【新增這段】透過字典去除同一個批次中重複的 id，避免 PostgreSQL UPSERT 衝突
+    unique_data_dict = {item["id"]: item for item in all_clean_data}
+    all_clean_data = list(unique_data_dict.values())
+
+    print(
+        f"去重後剩餘 {len(all_clean_data)} 筆唯一資料，準備上傳至 Supabase..."
+    )
 
     batch_size = 500
     for i in range(0, len(all_clean_data), batch_size):
