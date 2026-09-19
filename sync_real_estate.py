@@ -29,7 +29,8 @@ def fetch_and_clean_data():
         csv_url = f"https://opendata.land.moi.gov.tw/datainfo/opendataDownload?datasetPath=/{code.upper()}_LAND_BUILDING_C.csv"
         
         try:
-            df = pd.read_csv(csv_url, encoding='utf-8')
+            # 內政部 CSV 通常為 cp950 (Big5) 編碼
+            df = pd.read_csv(csv_url, encoding='cp950')
         except Exception as e:
             print(f"無法讀取 {city_name} 網路檔案: {e}")
             continue
