@@ -1,0 +1,38 @@
+name: Sync Real Estate Data
+
+# 設定觸發時機
+on:
+  schedule:
+    # 預設設定：每 5 天執行一次（可依需求調整 Cron 語法）
+    - cron: '0 0 */5 * *'
+  workflow_dispatch: # 允許你隨時手動在 GitHub 網頁上按鈕觸發執行
+
+jobs:
+  run-sync-script:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. 把專案程式碼下載到 GitHub 的雲端虛擬機中
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. 設定 Python 環境
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip' # 快取 pip 加速安裝
+
+    # 3. 安裝 requirements.txt 裡的相依套件
+    - name: Install dependencies
+      run: |
+        python -m upgrade pip
+        pip install -r requirements.txt
+
+    # 4. 執行你的資料清洗與上傳 Python 程式
+    - name: Run sync script
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        python sync_real_estate.py
