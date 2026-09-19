@@ -25,10 +25,9 @@ jobs:
 
     # 3. 安裝 requirements.txt 裡的相依套件
     - name: Install dependencies
-      run: |
-        python -m upgrade pip
-        pip install -r requirements.txt
-
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
     # 4. 執行你的資料清洗與上傳 Python 程式
     - name: Run sync script
       env:
