@@ -78,9 +78,12 @@ def fetch_and_clean_data():
                     city_dist = f"{city_name}{district}"
 
                     trans_sign = str(row.get("交易標的", ""))
-                    address = str(row.get("土地區段位置或街路名稱", ""))
+                    
                     total_price = float(row.get("總價元", 0))
-
+# 優先抓取「土地位置建物門牌」，若無則抓「土地區段位置或街路名稱」
+address = str(
+    row.get("土地位置建物門牌", row.get("土地區段位置或街路名稱", ""))
+).strip()
                     building_ping = (
                         float(row.get("建物移轉總面積平方公尺", 0)) / 3.30578
                     )
