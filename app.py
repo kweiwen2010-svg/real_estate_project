@@ -46,7 +46,7 @@ if st.button("🔄 強制刷新最新資料"):
 df = load_data()
 
 if not df.empty:
-    # 數據清洗與欄位轉換
+    # 1. 數據清洗與欄位轉換
     df["total_price"] = pd.to_numeric(df["total_price"], errors="coerce").fillna(
         0
     )
@@ -56,12 +56,18 @@ if not df.empty:
     df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce").fillna(
         0
     )
-    df["unit_price_wan"] = df["unit_price"] / 10000  # 萬/坪
+
+    # 清洗：過濾掉負數與極端不合理的數據（例如坪數 <= 0 或 > 300 坪的非一般住宅）
+    df = df[(df["building_ping"] > 0) & (df["building_ping"] <= 300)].copy()
+
+    # 換算單位：總價改為「萬元」、單價改為「萬/坪」
+    df["total_price_wan"] = df["total_price"] / 10000
+    df["unit_price_wan"] = df["unit_price"] / 10000
 
     # 側邊欄條件篩選器
     st.sidebar.header("🎯 區域與條件篩選")
 
-    # 1. 縣市行政區下拉選單
+    # 行政區選擇
     available_districts = sorted(
         [
             d
@@ -70,43 +76,49 @@ if not df.empty:
         ]
     )
     selected_district = st.sidebar.selectbox(
-        "📍 選擇縣市行政區（例如：台中市西屯區）：",
+        "📍 選擇縣市行政區（例如：嘉義縣中埔鄉）：",
         ["全部區域"] + available_districts,
     )
 
-    # 2. 關鍵字搜尋（可輸入路名，如：文心路）
+    # 關鍵字搜尋
     search_term = st.sidebar.text_input(
-        "🔎 關鍵字 / 路名搜尋（例如：文心路、中正路）：", ""
+        "🔎 關鍵字 / 路名搜尋（例如：中正路）：", ""
     )
 
-    # 3. 價格與坪數滑桿
-    min_price, max_price = float(df["total_price"].min()), float(
-        df["total_price"].max()
+    # 計算合理的動態滑桿範圍（單位：萬元、坪）
+    max_p_wan = (
+        int(df["total_price_wan"].max())
+        if not df.empty
+        else 10000
     )
-    min_ping, max_ping = float(df["building_ping"].min()), float(
-        df["building_ping"].max()
-    )
+    max_p_wan = min(max_p_wan, 10000)  # 最高上限設為 1 億（10000 萬）
 
+    max_ping_val = (
+        int(df["building_ping"].max()) if not df.empty else 100
+    )
+    max_ping_val = min(max_ping_val, 200)  # 最高坪數設為 200 坪
+
+    # 2. 優化後的直覺滑桿
     price_range = st.sidebar.slider(
-        "💰 總價範圍 (元)：",
-        min_value=int(min_price),
-        max_value=int(max_price),
-        value=(int(min_price), int(max_price)),
-        step=500000,
+        "💰 總價範圍 (萬元)：",
+        min_value=0,
+        max_value=max_p_wan,
+        value=(0, max_p_wan),
+        step=50,
     )
 
     ping_range = st.sidebar.slider(
         "📐 建物面積範圍 (坪)：",
-        min_value=int(min_ping),
-        max_value=int(max_ping),
-        value=(int(min_ping), int(max_ping)),
+        min_value=0,
+        max_value=max_ping_val,
+        value=(0, max_ping_val),
         step=5,
     )
 
     # 執行資料過濾
     filtered_df = df[
-        (df["total_price"] >= price_range[0])
-        & (df["total_price"] <= price_range[1])
+        (df["total_price_wan"] >= price_range[0])
+        & (df["total_price_wan"] <= price_range[1])
         & (df["building_ping"] >= ping_range[0])
         & (df["building_ping"] <= ping_range[1])
     ].copy()
@@ -117,7 +129,7 @@ if not df.empty:
             filtered_df["city_district"] == selected_district
         ]
 
-    # 關鍵字/路名過濾
+    # 關鍵字過濾
     if search_term:
         filtered_df = filtered_df[
             filtered_df["address"]
@@ -128,7 +140,7 @@ if not df.empty:
             .str.contains(search_term, case=False, na=False)
         ]
 
-    st.success(f"目前共載入 {len(df)} 筆完整資料")
+    st.success(f"目前成功載入 {len(df)} 筆有效交易資料！")
 
     # ------------------ 📊 區域行情統計指標 ------------------
     district_label = (
@@ -150,7 +162,7 @@ if not df.empty:
 
     with col2:
         avg_total_price = (
-            filtered_df["total_price"].mean() / 10000
+            filtered_df["total_price_wan"].mean()
             if not filtered_df.empty
             else 0
         )
@@ -166,11 +178,10 @@ if not df.empty:
 
     st.markdown("---")
 
-    # ------------------ 📈 分區與路段分析圖表 ------------------
+    # ------------------ 📈 圖表展示 ------------------
     col_chart1, col_chart2 = st.columns(2)
 
     with col_chart1:
-        # 如果選了「全部區域」，就顯示「各行政區平均單價比較」
         if selected_district == "全部區域":
             st.subheader("🏙️ 各行政區平均單價比較 (萬/坪)")
             district_stats = (
@@ -182,9 +193,7 @@ if not df.empty:
             if not district_stats.empty:
                 st.bar_chart(district_stats, color="#FF4B4B")
             else:
-                st.info("尚無足夠數據可繪製行政區比較圖。")
-
-        # 如果選了特定行政區，就顯示該區內的「單價區間分佈」
+                st.info("尚無數據。")
         else:
             st.subheader(f"📈 【{selected_district}】單價區間分佈")
             if not valid_unit_price.empty:
@@ -210,13 +219,13 @@ if not df.empty:
                 st.info("尚無單價資料。")
 
     with col_chart2:
-        st.subheader("📌 坪數 vs 總價分佈圖")
+        st.subheader("📌 坪數 vs 總價(萬元) 分佈圖")
         if not filtered_df.empty:
             chart_df = filtered_df[
                 (filtered_df["building_ping"] > 0)
-                & (filtered_df["total_price"] > 0)
+                & (filtered_df["total_price_wan"] > 0)
             ].copy()
-            chart_df["總價(萬元)"] = chart_df["total_price"] / 10000
+            chart_df["總價(萬元)"] = chart_df["total_price_wan"]
             chart_df["坪數"] = chart_df["building_ping"]
 
             st.scatter_chart(
